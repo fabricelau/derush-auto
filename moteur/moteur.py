@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # moteur.py - moteur d'analyse pour le panneau Premiere "Dérush Auto" (Mac et PC)
-import json, subprocess, os, threading, shutil
+import json, subprocess, os, sys, threading, shutil
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np, cv2
 
 REGLAGES = dict(largeur=320, min_dur=2.0, seuil_trem=6.0, vmax=30.0,
@@ -299,7 +298,7 @@ def monter(chutiers, ordre, duree, mode="film", musique=None, synchro_cam=True):
 ETAT = dict(en_cours=False, fait=0, total=0, resultat=None, erreur=None)
 
 
-def cache_ou_analyse(f, r):
+def cache_valide(f, r):
     p = Path(f)
     cache = p.with_suffix(p.suffix + ".derush.json")
     try:
@@ -309,6 +308,15 @@ def cache_ou_analyse(f, r):
                 return ancien
     except Exception:
         pass
+    return None
+
+
+def cache_ou_analyse(f, r):
+    p = Path(f)
+    cache = p.with_suffix(p.suffix + ".derush.json")
+    deja = cache_valide(f, r)
+    if deja:
+        return deja
     res = decouper_rush(p, r)
     res["reglages"] = r
     try:
@@ -318,17 +326,36 @@ def cache_ou_analyse(f, r):
     return res
 
 
+def analyser_dans_processus(f, r):
+    # chaque rush est analysé dans un programme séparé (fiable sur Windows comme sur Mac),
+    # qui écrit son résultat dans le fichier cache à côté du rush
+    py = sys.executable
+    if py.lower().endswith("pythonw.exe"):
+        py = py[:-len("pythonw.exe")] + "python.exe"
+    cmd = [py, str(ICI / "moteur.py"), "--rush", f, json.dumps(r)]
+    subprocess.run(cmd, capture_output=True, timeout=3600,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    cache = Path(f + ".derush.json")
+    return json.loads(cache.read_text(encoding="utf-8"))
+
+
 def lancer_analyse(chutiers, reglages):
+    from concurrent.futures import ThreadPoolExecutor
     r = dict(REGLAGES, **(reglages or {}))
     fichiers = list(dict.fromkeys(f for l in chutiers.values() for f in l))
-    ETAT.update(en_cours=True, fait=0, total=len(fichiers), resultat=None, erreur=None)
+    ETAT.update(en_cours=True, fait=0, total=len(fichiers), resultat=None, erreur=None, echecs=[])
     res = {}
     try:
-        with ProcessPoolExecutor(max_workers=max(1, (os.cpu_count() or 2) - 1)) as ex:
-            futs = {ex.submit(cache_ou_analyse, f, r): f for f in fichiers}
-            for fu in as_completed(futs):
-                res[futs[fu]] = fu.result()
-                ETAT["fait"] += 1
+        def un(f):
+            try:
+                deja = cache_valide(f, r)
+                res[f] = deja if deja else analyser_dans_processus(f, r)
+            except Exception as e:
+                ETAT["echecs"].append(f"{Path(f).name} : {e}")
+                res[f] = dict(fichier=f, fps=25.0, duree=0, moments=[], discours=False, segments=[])
+            ETAT["fait"] += 1
+        with ThreadPoolExecutor(max_workers=max(1, min(12, (os.cpu_count() or 2) - 1))) as ex:
+            list(ex.map(un, fichiers))
         ETAT["resultat"] = {nom: [res[f] for f in l] for nom, l in chutiers.items()}
     except Exception as e:
         ETAT["erreur"] = str(e)
@@ -382,7 +409,9 @@ class Serveur(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    import sys
+    if len(sys.argv) >= 4 and sys.argv[1] == "--rush":  # analyse d'un seul rush
+        cache_ou_analyse(sys.argv[2], json.loads(sys.argv[3]))
+        sys.exit(0)
     try:
         serveur = HTTPServer(("127.0.0.1", 8765), Serveur)
     except OSError:
