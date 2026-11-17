@@ -241,12 +241,85 @@ def repartir(liste, k):
     return [liste[i * t:(i + 1) * t] for i in range(k)]
 
 
+def monter_clip(chutiers, ordre, duree, musique):
+    """Clip émotion : plans posés de 4 temps, coupes sur les temps de la musique,
+    un seul passage par rush, parties équilibrées, durée = min(durée voulue, musique)."""
+    beats = []
+    if musique:
+        try:
+            beats = temps_musique(musique)[1]
+        except Exception:
+            beats = []
+    if len(beats) < 8:  # pas de rythme détecté : grille régulière de 0,8 s
+        beats = [i * 0.8 for i in range(int(duree / 0.8) + 8)]
+    beats = [b for b in beats if b <= duree + 0.01]
+    intervalle = float(np.median(np.diff(beats)))
+    temps_par_plan = max(2, min(8, int(round(3.5 / intervalle))))  # viser ~3,5 s
+    min_temps = max(2, temps_par_plan // 2)
+
+    # meilleur passage de chaque rush, hors discours
+    vus, parts = {}, []
+    for nom in ordre:
+        k = ordre.count(nom)
+        i = vus.get(nom, 0)
+        vus[nom] = i + 1
+        meilleurs = []
+        for j, r in enumerate(chutiers.get(nom, [])):
+            segs = [x for x in r["segments"] if not x["discours"]]
+            if segs:
+                m = max(segs, key=lambda x: (x["note"], x["sortie"] - x["entree"]))
+                meilleurs.append(dict(m, fichier=r["fichier"], chutier=nom, rang=j))
+        parts.append(repartir(meilleurs, k)[i] if meilleurs else [])
+
+    # temps de musique par partie : équilibré (racine de la matière disponible)
+    poids = [np.sqrt(len(p)) for p in parts]
+    total_poids = sum(poids) or 1
+    n_temps = len(beats) - 1
+    alloc = [int(n_temps * w / total_poids) for w in poids]
+    alloc[-1] += n_temps - sum(alloc)
+
+    clips, b, report = [], 0, 0
+    for p, nb in zip(parts, alloc):
+        nb += report  # temps non utilisés par la partie précédente
+        report = nb
+        if not p or nb <= 0:
+            continue
+        # 1) choisir les meilleurs plans et leur nombre de temps (le plan doit tenir dans le passage)
+        reste, retenus = nb, []
+        for x in sorted(p, key=lambda x: -x["note"]):
+            if reste < min_temps:
+                break
+            retenus.append(x)
+            reste -= min(temps_par_plan, reste)
+        retenus.sort(key=lambda x: (x["rang"], x["entree"]))  # ordre de tournage
+        # 2) poser les plans sur la grille des temps
+        reste = nb
+        for idx, x in enumerate(retenus):
+            if b >= n_temps or reste < min_temps:
+                break
+            voulu = min(temps_par_plan, reste, n_temps - b)
+            if idx == len(retenus) - 1 and reste - voulu < min_temps:
+                voulu = min(reste, n_temps - b)  # absorber le petit reste
+            dispo = x["sortie"] - x["entree"]
+            t = voulu
+            while t > 1 and beats[b + t] - beats[b] > dispo:
+                t -= 1
+            long = beats[b + t] - beats[b]
+            if long > dispo:
+                continue
+            milieu = (x["entree"] + x["sortie"]) / 2
+            debut = max(x["entree"], min(milieu - long / 2, x["sortie"] - long))
+            clips.append(dict(x, entree=round(debut, 3), sortie=round(debut + long, 3)))
+            b += t
+            reste -= t
+        report = reste
+    return clips
+
+
 def monter(chutiers, ordre, duree, mode="film", musique=None, synchro_cam=True):
-    beats = temps_musique(musique)[1] if (mode == "clip" and musique) else []
-    if beats and len(beats) > 4:
-        pas = float(np.median(np.diff(beats))) * 2
-    else:
-        pas = 5.0 if mode == "film" else 2.5
+    if mode == "clip":
+        return monter_clip(chutiers, ordre, duree, musique)
+    pas = 5.0
 
     vus, parts = {}, []
     for nom in ordre:
@@ -263,11 +336,10 @@ def monter(chutiers, ordre, duree, mode="film", musique=None, synchro_cam=True):
     clips = []
     for p, budget in zip(parts, budgets):
         choisis, total = [], 0.0
-        if mode == "film":
-            for s in p:
-                if s["discours"]:  # discours en entier dans le film
-                    choisis.append(dict(s))
-                    total += s["sortie"] - s["entree"]
+        for s in p:
+            if s["discours"]:  # discours en entier dans le film
+                choisis.append(dict(s))
+                total += s["sortie"] - s["entree"]
         autres = sorted([s for s in p if not s["discours"]], key=lambda s: -s["note"])
         for s in autres:
             if total >= budget:
@@ -279,7 +351,7 @@ def monter(chutiers, ordre, duree, mode="film", musique=None, synchro_cam=True):
         choisis.sort(key=lambda s: (s["rang"], s["entree"]))
         clips += choisis
 
-    if synchro_cam and mode == "film":
+    if synchro_cam:
         for c in clips:
             if not c.get("discours"):
                 continue
@@ -290,17 +362,6 @@ def monter(chutiers, ordre, duree, mode="film", musique=None, synchro_cam=True):
                 if fiab > 0.3:
                     c["camera_b"] = dict(fichier=r["fichier"], decalage=dec)
                     break
-
-    if beats:  # caler les coupes du clip sur les temps de la musique
-        t, b = 0.0, 0
-        for c in clips:
-            long = c["sortie"] - c["entree"]
-            cible = t + long
-            while b < len(beats) - 1 and beats[b] < cible:
-                b += 1
-            vrai = max(0.5, beats[b] - t)
-            c["sortie"] = round(c["entree"] + min(vrai, long + 0.5), 3)
-            t += c["sortie"] - c["entree"]
     return clips
 
 

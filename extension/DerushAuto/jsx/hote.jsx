@@ -113,16 +113,27 @@ function creerSequence(texte) {
       poses++;
     }
     if (d.musique) {
-      app.project.importFiles([d.musique], true, bin, false);
-      for (var k = bin.children.numItems - 1; k >= 0; k--) {
-        var it = bin.children[k];
-        if (it.type === ProjectItemType.CLIP && it.getMediaPath() === d.musique) {
-          seq.audioTracks[seq.audioTracks.numTracks - 1].overwriteClip(it, 0);
-          break;
-        }
+    // clip : seulement la musique, le son des rushs est coupé
+    for (var a = 0; a < seq.audioTracks.numTracks - 1; a++) {
+      try { seq.audioTracks[a].setMute(1); } catch (e3) {}
+    }
+    app.project.importFiles([d.musique], true, bin, false);
+    for (var k = bin.children.numItems - 1; k >= 0; k--) {
+      var it = bin.children[k];
+      if (it.type === ProjectItemType.CLIP && it.getMediaPath() === d.musique) {
+        var pisteM = seq.audioTracks[seq.audioTracks.numTracks - 1];
+        pisteM.overwriteClip(it, 0);
+        // la musique s'arrête avec le dernier plan
+        try {
+          var m = pisteM.clips[pisteM.clips.numItems - 1];
+          var fin = new Time(); fin.seconds = t;
+          if (m.end.seconds > t) m.end = fin;
+        } catch (e4) {}
+        break;
       }
     }
-    try { app.project.openSequence(seq.sequenceID); } catch (e2) {}
+  }
+  try { app.project.openSequence(seq.sequenceID); } catch (e2) {}
     return "ok:" + poses;
   } catch (e) { return "ERREUR:" + e; }
 }
