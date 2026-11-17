@@ -88,9 +88,17 @@ def redemarrer():
     os.execv(sys.executable, args)
 
 
+REVEIL = threading.Event()
+
+
+def verifier_maintenant():
+    REVEIL.set()
+
+
 def boucle(etat, serveur):
-    time.sleep(20)  # laisse l'ordinateur finir de démarrer
+    REVEIL.wait(20)  # laisse l'ordinateur finir de démarrer
     while True:
+        REVEIL.clear()
         try:
             if not etat.get("en_cours") and installer(etat):
                 time.sleep(3)
@@ -100,7 +108,7 @@ def boucle(etat, serveur):
                 redemarrer()
         except Exception as e:
             etat["mise_a_jour_erreur"] = str(e)
-        time.sleep(INTERVALLE)
+        REVEIL.wait(INTERVALLE)  # ou plus tôt si le panneau le demande
 
 
 def demarrer(etat, serveur):

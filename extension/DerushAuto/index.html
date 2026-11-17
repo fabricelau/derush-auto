@@ -59,8 +59,8 @@ $("trem").oninput = () => $("tremVal").textContent = $("trem").value;
 
 // ---------- modèles de structure ----------
 const DEFAUT = {
-  "Ouverture séance couple": "couple, preparatifs, mairie, ceremonie, soiree",
-  "Ouverture entrée cérémonie": "ceremonie, preparatifs, ceremonie, couple, soiree"
+  "Ouverture séance couple": "couple, preparatifs, mairie, ceremonie, cocktail, soiree",
+  "Ouverture entrée cérémonie": "ceremonie, preparatifs, ceremonie, mairie, couple, cocktail, soiree"
 };
 function lireModeles() { try { return JSON.parse(localStorage.getItem("modeles")) || DEFAUT; } catch (e) { return DEFAUT; } }
 function ecrireModeles(m) { try { localStorage.setItem("modeles", JSON.stringify(m)); } catch (e) {} }
@@ -118,7 +118,7 @@ function suivre() {
     const tous = Object.values(resultat).flat();
     const n = tous.reduce((a, r) => a + r.segments.length, 0);
     const d = tous.filter(r => r.discours).length;
-    msg(`Analyse terminée : ${n} passages gardés, ${d} discours.`);
+    msg(`Analyse terminée : ${n} passages gardés, ${d} discours. Chutiers : ${Object.keys(resultat).join(", ")}.`);
     ["bDerush", "bFilm", "bClip"].forEach(b => $(b).disabled = false);
   }, 1000);
 }
@@ -148,13 +148,16 @@ $("bDerush").onclick = async () => {
   } catch (e) { msg(String(e.message || e)); }
 };
 
+// "couple" retrouve "Seance couple", "preparatifs" retrouve
+// "Préparatifs Marié" ET "Préparatifs de la Mariée" (dans l'ordre du projet)
 function ordreChutiers() {
-  const vrais = Object.keys(resultat), inconnus = [];
-  const ordre = $("ordre").value.split(",").map(s => s.trim()).filter(Boolean).map(s => {
-    const v = vrais.find(n => norm(n) === norm(s));
-    if (!v) inconnus.push(s);
-    return v;
-  }).filter(Boolean);
+  const vrais = Object.keys(resultat), inconnus = [], ordre = [];
+  $("ordre").value.split(",").map(s => s.trim()).filter(Boolean).forEach(s => {
+    const exact = vrais.filter(n => norm(n) === norm(s));
+    const proches = exact.length ? exact : vrais.filter(n => norm(n).includes(norm(s)));
+    if (!proches.length) inconnus.push(s);
+    ordre.push(...proches);
+  });
   return { ordre, inconnus };
 }
 
@@ -184,7 +187,7 @@ $("bMusique").onclick = () => {
 };
 
 // ---------- version et mises à jour ----------
-const VERSION_PANNEAU = "1.1.0";
+const VERSION_PANNEAU = "1.1.1";
 $("version").textContent = "Derush Auto " + VERSION_PANNEAU;
 function plusRecente(a, b) {
   const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
@@ -201,6 +204,7 @@ async function verifierVersion() {
   } catch (x) { return false; }
 }
 setInterval(verifierVersion, 60000);
+post("/verifier", {}).catch(() => {});  // le moteur cherche une mise à jour à l'ouverture du panneau
 
 verifierVersion().then(ok => msg(ok ? "Moteur prêt. Range tes rushs dans des chutiers, puis clique sur Analyser."
                                      : "Moteur éteint : lance « Moteur Derush Auto »."));

@@ -16,22 +16,43 @@ function indexer(dossier, liste) {
   }
 }
 
-// renvoie {"chutier": ["chemin1", ...], ...} pour les chutiers à la racine du projet
+function aDesRushsDirects(b) {
+  for (var i = 0; i < b.children.numItems; i++)
+    if (b.children[i].type === ProjectItemType.CLIP) return true;
+  return false;
+}
+
+function aDesSousChutiers(b) {
+  for (var i = 0; i < b.children.numItems; i++)
+    if (b.children[i].type === ProjectItemType.BIN) return true;
+  return false;
+}
+
+// un chutier qui ne contient que des sous-chutiers (ex. "Rushs") est un simple
+// dossier de rangement : ce sont ses sous-chutiers qui deviennent les parties du film
+function ajouterChutier(b, morceaux) {
+  if (b.name === "Derush Auto") return;
+  if (!aDesRushsDirects(b) && aDesSousChutiers(b)) {
+    for (var i = 0; i < b.children.numItems; i++)
+      if (b.children[i].type === ProjectItemType.BIN) ajouterChutier(b.children[i], morceaux);
+    return;
+  }
+  var l = [];
+  indexer(b, l);
+  if (!l.length) return;
+  l.sort(function (a, c) { return nomFichier(a) < nomFichier(c) ? -1 : 1; }); // ordre de tournage
+  var q = [];
+  for (var j = 0; j < l.length; j++) q.push('"' + esc(l[j]) + '"');
+  morceaux.push('"' + esc(b.name) + '":[' + q.join(",") + "]");
+}
+
+// renvoie {"chutier": ["chemin1", ...], ...}
 function listerChutiers() {
   try {
     INDEX = {};
     var racine = app.project.rootItem, morceaux = [];
-    for (var i = 0; i < racine.children.numItems; i++) {
-      var b = racine.children[i];
-      if (b.type !== ProjectItemType.BIN || b.name === "Derush Auto") continue;
-      var l = [];
-      indexer(b, l);
-      if (!l.length) continue;
-      l.sort(function (a, c) { return nomFichier(a) < nomFichier(c) ? -1 : 1; }); // ordre de tournage
-      var q = [];
-      for (var j = 0; j < l.length; j++) q.push('"' + esc(l[j]) + '"');
-      morceaux.push('"' + esc(b.name) + '":[' + q.join(",") + "]");
-    }
+    for (var i = 0; i < racine.children.numItems; i++)
+      if (racine.children[i].type === ProjectItemType.BIN) ajouterChutier(racine.children[i], morceaux);
     return "{" + morceaux.join(",") + "}";
   } catch (e) { return "ERREUR:" + e; }
 }

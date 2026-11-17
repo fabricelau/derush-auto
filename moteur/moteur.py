@@ -363,6 +363,13 @@ class Serveur(BaseHTTPRequestHandler):
                 threading.Thread(target=lancer_analyse,
                                  args=(d["chutiers"], d.get("reglages")), daemon=True).start()
                 return self._rep(200, {"lance": True})
+            if self.path == "/verifier":
+                try:
+                    import mise_a_jour
+                    mise_a_jour.verifier_maintenant()
+                except Exception:
+                    pass
+                return self._rep(200, {"ok": True})
             if self.path == "/monter":
                 if not ETAT["resultat"]:
                     return self._rep(400, {"erreur": "lance d'abord l'analyse"})
