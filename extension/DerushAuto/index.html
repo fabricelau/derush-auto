@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8">
+<style>
+  body { background:#232323; color:#ddd; font:12px sans-serif; padding:10px; margin:0; }
+  h3 { font-size:11px; color:#9cf; margin:16px 0 6px; text-transform:uppercase; letter-spacing:.05em; }
+  label { display:flex; justify-content:space-between; align-items:center; margin:6px 0; gap:8px; }
+  input[type=number], input[type=text], select { width:150px; background:#1a1a1a; color:#ddd; border:1px solid #444; padding:3px; }
+  input[type=range] { width:150px; }
+  button { width:100%; margin:4px 0; padding:8px; background:#2d5a8a; color:#fff; border:0; border-radius:3px; cursor:pointer; font-size:12px; }
+  button:hover:not(:disabled) { background:#3a6ea5; }
+  button:disabled { background:#444; color:#888; cursor:default; }
+  .petit { width:auto; padding:4px 8px; margin:0; background:#3a3a3a; }
+  #barre { height:6px; background:#333; margin:6px 0; border-radius:3px; overflow:hidden; }
+  #barre div { height:100%; width:0; background:#4c9; transition:width .3s; }
+  #msg { color:#aaa; min-height:30px; }
+  .val { color:#9cf; width:28px; text-align:right; }
+</style></head>
+<body>
+<h3>Dérushage</h3>
+<label>Tolérance aux tremblements <span><input type="range" id="trem" value="6" step="0.5" min="1" max="20"> <span class="val" id="tremVal">6</span></span></label>
+<label>Durée mini d'un passage (s) <input type="number" id="mindur" value="2" step="0.5" min="0.5"></label>
+<label>Discours à partir de (s) <input type="number" id="disc" value="60" step="10" min="10"></label>
+<label>Écarter flou et mauvaise expo <input type="checkbox" id="qualite" checked></label>
+<label>Marqueurs sur les moments forts <input type="checkbox" id="marq" checked></label>
+<button id="bAnalyser">1. Analyser les chutiers</button>
+<div id="barre"><div></div></div>
+<div id="msg">Moteur : vérification…</div>
+<button id="bDerush" disabled>2. Timelines de dérushage</button>
+
+<h3>Structure</h3>
+<label>Modèle <select id="modele"></select></label>
+<label>Ordre des chutiers <input type="text" id="ordre"></label>
+<label><button class="petit" id="bSauver">Enregistrer comme modèle</button><button class="petit" id="bSuppr">Supprimer</button></label>
+
+<h3>Montage</h3>
+<label>Durée du film (min) <input type="number" id="dFilm" value="20" min="1"></label>
+<label>Durée du clip (min) <input type="number" id="dClip" value="3" step="0.5" min="0.5"></label>
+<label>Synchro 2 caméras (discours) <input type="checkbox" id="sync" checked></label>
+<label>Musique du clip <button class="petit" id="bMusique">Choisir…</button></label>
+<div id="nomMusique" style="color:#888">Aucune musique</div>
+<button id="bFilm" disabled>3. Créer le film</button>
+<button id="bClip" disabled>4. Créer le clip</button>
+<div id="maj" style="color:#fc6;margin-top:12px"></div>
+<div id="version" style="color:#666;margin-top:8px;font-size:10px"></div>
+
+<script src="CSInterface.js"></script>
+<script>
+const cs = new CSInterface(), MOTEUR = "http://127.0.0.1:8765";
+const $ = id => document.getElementById(id);
+let chutiers = null, resultat = null, musique = null;
+
+const jsx = code => new Promise(r => cs.evalScript(code, r));
+const msg = t => $("msg").textContent = t;
+const post = (url, corps) => fetch(MOTEUR + url, { method: "POST",
+  headers: { "Content-Type": "application/json" }, body: JSON.stringify(corps) }).then(r => r.json());
+const norm = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+$("trem").oninput = () => $("tremVal").textContent = $("trem").value;
+
+// ---------- modèles de structure ----------
+const DEFAUT = {
+  "Ouverture séance couple": "couple, preparatifs, mairie, ceremonie, soiree",
+  "Ouverture entrée cérémonie": "ceremonie, preparatifs, ceremonie, couple, soiree"
+};
+function lireModeles() { try { return JSON.parse(localStorage.getItem("modeles")) || DEFAUT; } catch (e) { return DEFAUT; } }
+function ecrireModeles(m) { try { localStorage.setItem("modeles", JSON.stringify(m)); } catch (e) {} }
+function afficherModeles(choix) {
+  const m = lireModeles(), s = $("modele");
+  s.innerHTML = "";
+  Object.keys(m).forEach(n => { const o = document.createElement("option"); o.textContent = n; s.appendChild(o); });
+  if (choix) s.value = choix;
+  $("ordre").value = m[s.value] || "";
+}
+$("modele").onchange = () => $("ordre").value = lireModeles()[$("modele").value] || "";
+$("bSauver").onclick = () => {
+  const nom = prompt("Nom du modèle :", $("modele").value);
+  if (!nom) return;
+  const m = lireModeles(); m[nom] = $("ordre").value; ecrireModeles(m); afficherModeles(nom);
+  msg("Modèle « " + nom + " » enregistré.");
+};
+$("bSuppr").onclick = () => {
+  const m = lireModeles(); delete m[$("modele").value]; ecrireModeles(m); afficherModeles();
+};
+afficherModeles();
+
+// ---------- analyse ----------
+function reglages() {
+  const r = { seuil_trem: +$("trem").value, min_dur: +$("mindur").value, discours_min: +$("disc").value };
+  if (!$("qualite").checked) Object.assign(r, { seuil_flou: 0, sombre: -1, crame: 256 });
+  return r;
+}
+
+$("bAnalyser").onclick = async () => {
+  const txt = await jsx("listerChutiers()");
+  if (!txt || txt.indexOf("ERREUR") === 0) return msg("Premiere : " + txt);
+  chutiers = JSON.parse(txt);
+  if (!Object.keys(chutiers).length) return msg("Aucun chutier avec des rushs à la racine du projet.");
+  try {
+    const rep = await post("/analyser", { chutiers, reglages: reglages() });
+    if (rep.erreur) return msg(rep.erreur);
+  } catch (e) { return msg("Moteur éteint : lance « Moteur Derush Auto »."); }
+  $("bAnalyser").disabled = true;
+  suivre();
+};
+
+function suivre() {
+  const minuteur = setInterval(async () => {
+    let e;
+    try { e = await fetch(MOTEUR + "/etat").then(r => r.json()); }
+    catch (x) { clearInterval(minuteur); $("bAnalyser").disabled = false; return msg("Le moteur s'est arrêté."); }
+    $("barre").firstElementChild.style.width = (e.total ? 100 * e.fait / e.total : 0) + "%";
+    msg(`Analyse : ${e.fait} / ${e.total} rushs`);
+    if (e.en_cours) return;
+    clearInterval(minuteur);
+    $("bAnalyser").disabled = false;
+    if (e.erreur) return msg("Erreur : " + e.erreur);
+    resultat = e.resultat;
+    const tous = Object.values(resultat).flat();
+    const n = tous.reduce((a, r) => a + r.segments.length, 0);
+    const d = tous.filter(r => r.discours).length;
+    msg(`Analyse terminée : ${n} passages gardés, ${d} discours.`);
+    ["bDerush", "bFilm", "bClip"].forEach(b => $(b).disabled = false);
+  }, 1000);
+}
+
+// ---------- création des séquences ----------
+const moments = {};
+function indexerMoments() { Object.values(resultat).flat().forEach(r => moments[r.fichier] = r.moments); }
+
+async function creer(d) {
+  d.marqueurs = $("marq").checked;
+  d.clips.forEach(c => c.moments = moments[c.fichier] || []);
+  const rep = await jsx("creerSequence(" + JSON.stringify(JSON.stringify(d)) + ")");
+  if (rep && rep.indexOf("ERREUR") === 0) throw new Error(rep);
+  return rep;
+}
+
+$("bDerush").onclick = async () => {
+  indexerMoments();
+  try {
+    for (const nom of Object.keys(resultat)) {
+      msg("Timeline de dérushage : " + nom + "…");
+      const clips = resultat[nom].flatMap(r => r.segments.map(s =>
+        ({ fichier: r.fichier, entree: s.entree, sortie: s.sortie })));
+      await creer({ nom: "Dérush - " + nom, clips });
+    }
+    msg("Timelines de dérushage créées dans le chutier Derush Auto.");
+  } catch (e) { msg(String(e.message || e)); }
+};
+
+function ordreChutiers() {
+  const vrais = Object.keys(resultat), inconnus = [];
+  const ordre = $("ordre").value.split(",").map(s => s.trim()).filter(Boolean).map(s => {
+    const v = vrais.find(n => norm(n) === norm(s));
+    if (!v) inconnus.push(s);
+    return v;
+  }).filter(Boolean);
+  return { ordre, inconnus };
+}
+
+async function monter(mode) {
+  indexerMoments();
+  const { ordre, inconnus } = ordreChutiers();
+  if (!ordre.length) return msg("Aucun chutier de l'ordre n'existe dans le projet.");
+  if (mode === "clip" && !musique) return msg("Choisis d'abord une musique pour le clip.");
+  msg(mode === "film" ? "Montage du film…" : "Montage du clip sur la musique…");
+  const minutes = +$(mode === "film" ? "dFilm" : "dClip").value;
+  try {
+    const rep = await post("/monter", { ordre, duree: minutes * 60, mode,
+      musique: mode === "clip" ? musique : null, synchro: $("sync").checked });
+    if (rep.erreur) return msg("Erreur : " + rep.erreur);
+    const heure = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    const nom = (mode === "film" ? "Film - " : "Clip - ") + $("modele").value + " - " + heure;
+    await creer({ nom, clips: rep.clips, musique: mode === "clip" ? musique : null });
+    msg(`${nom} : ${rep.clips.length} plans posés.` + (inconnus.length ? " Ignorés : " + inconnus.join(", ") : ""));
+  } catch (e) { msg(String(e.message || e)); }
+}
+$("bFilm").onclick = () => monter("film");
+$("bClip").onclick = () => monter("clip");
+
+$("bMusique").onclick = () => {
+  const r = window.cep.fs.showOpenDialog(false, false, "Musique du clip", null, ["mp3", "wav", "m4a", "aif", "aiff"]);
+  if (r.data && r.data.length) { musique = r.data[0]; $("nomMusique").textContent = musique.split(/[\\/]/).pop(); }
+};
+
+// ---------- version et mises à jour ----------
+const VERSION_PANNEAU = "1.1.0";
+$("version").textContent = "Derush Auto " + VERSION_PANNEAU;
+function plusRecente(a, b) {
+  const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+}
+async function verifierVersion() {
+  try {
+    const e = await fetch(MOTEUR + "/etat").then(r => r.json());
+    if (e.version && plusRecente(e.version, VERSION_PANNEAU))
+      $("maj").textContent = "Version " + e.version + " installée : redémarre Premiere pour en profiter.";
+    else if (e.mise_a_jour) $("maj").textContent = e.mise_a_jour;
+    return true;
+  } catch (x) { return false; }
+}
+setInterval(verifierVersion, 60000);
+
+verifierVersion().then(ok => msg(ok ? "Moteur prêt. Range tes rushs dans des chutiers, puis clique sur Analyser."
+                                     : "Moteur éteint : lance « Moteur Derush Auto »."));
+</script>
+</body></html>

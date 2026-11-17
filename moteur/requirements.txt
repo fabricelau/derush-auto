@@ -1,0 +1,6 @@
+numpy
+opencv-python
+librosa
+webrtcvad-wheels
+imageio-ffmpeg
+certifi

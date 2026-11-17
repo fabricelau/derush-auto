@@ -1,0 +1,39 @@
+DERUSH AUTO - panneau de derushage et montage automatique pour Premiere Pro
+================================================================================
+
+INSTALLATION (une seule fois par ordinateur, Premiere ferme)
+
+  Sur PC  : double-clic sur  Installer-PC.bat
+            (si Windows affiche "Windows a protege votre ordinateur" :
+             "Informations complementaires" puis "Executer quand meme")
+
+  Sur Mac : clic droit sur  Installer-Mac.command  puis "Ouvrir"
+            (le clic droit evite le blocage de securite d'Apple)
+
+  L'installateur s'occupe de tout : Python (sur PC), les outils d'analyse,
+  le panneau Premiere, et le moteur qui demarre tout seul a l'allumage.
+
+UTILISATION
+
+  1. Dans Premiere, range les rushs dans des chutiers a la racine du projet :
+     couple, preparatifs, mairie, ceremonie, soiree...
+  2. Fenetre > Extensions > Derush Auto
+  3. "Analyser les chutiers" (la barre montre l'avancement ; la 2e fois,
+     seuls les nouveaux rushs sont analyses).
+  4. "Timelines de derushage" : une sequence par chutier.
+  5. Choisis un modele de structure (ou ecris l'ordre, un chutier peut
+     revenir plusieurs fois pour les flashbacks), la duree, puis
+     "Creer le film" ou "Creer le clip" (avec une musique).
+
+  Tout est range dans le chutier "Derush Auto". Tes rushs ne sont jamais modifies.
+
+REGLAGE LE PLUS IMPORTANT
+
+  "Tolerance aux tremblements" (6 par defaut) :
+   - trop de plans coupes -> monte a 8 ou 10
+   - des plans qui tremblent restent -> descends a 4
+
+SI LE PANNEAU DIT "MOTEUR ETEINT"
+
+  PC  : double-clic sur "Moteur Derush Auto" sur le Bureau.
+  Mac : relance Installer-Mac.command.
