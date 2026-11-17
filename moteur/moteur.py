@@ -61,7 +61,7 @@ def compter_visages(g):
 
 
 def lisser(x, n):
-    n = max(1, int(n))
+    n = max(1, min(int(n), len(x)))  # jamais plus large que le signal (rushs très courts)
     return np.convolve(x, np.ones(n) / n, mode="same")
 
 
@@ -171,7 +171,7 @@ def decouper_rush(path, r=None):
     pcm = lire_audio(path)
     parole = detecter_parole(pcm, fps, n)
     infos = dict(fichier=str(path), fps=fps, duree=round(duree, 2), moments=moments_forts(pcm))
-    if n < 2:
+    if n < 2 or duree < r["min_dur"]:  # rush trop court pour donner un passage
         infos.update(discours=False, segments=[])
         return infos
 
