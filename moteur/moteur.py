@@ -10,6 +10,7 @@ REGLAGES = dict(largeur=320, min_dur=2.0, seuil_trem=6.0, vmax=30.0,
                 parole_ratio=0.6, discours_min=60)
 
 ICI = Path(__file__).resolve().parent
+cv2.setNumThreads(2)  # plusieurs rushs en parallèle : peu de threads chacun
 _VISAGES = None
 
 
@@ -333,9 +334,12 @@ def analyser_dans_processus(f, r):
     if py.lower().endswith("pythonw.exe"):
         py = py[:-len("pythonw.exe")] + "python.exe"
     cmd = [py, str(ICI / "moteur.py"), "--rush", f, json.dumps(r)]
-    subprocess.run(cmd, capture_output=True, timeout=3600,
-                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    p = subprocess.run(cmd, capture_output=True, timeout=3600, cwd=str(ICI),
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     cache = Path(f + ".derush.json")
+    if not cache.exists():
+        err = (p.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        raise RuntimeError(f"code {p.returncode} ({py}) : " + " | ".join(err[-4:]))
     return json.loads(cache.read_text(encoding="utf-8"))
 
 
@@ -349,12 +353,13 @@ def lancer_analyse(chutiers, reglages):
         def un(f):
             try:
                 deja = cache_valide(f, r)
-                res[f] = deja if deja else analyser_dans_processus(f, r)
+                res[f] = deja if deja else cache_ou_analyse(f, r)
             except Exception as e:
-                ETAT["echecs"].append(f"{Path(f).name} : {e}")
+                import traceback
+                ETAT["echecs"].append(f"{Path(f).name} : {e!r} | " + traceback.format_exc().splitlines()[-3])
                 res[f] = dict(fichier=f, fps=25.0, duree=0, moments=[], discours=False, segments=[])
             ETAT["fait"] += 1
-        with ThreadPoolExecutor(max_workers=max(1, min(12, (os.cpu_count() or 2) - 1))) as ex:
+        with ThreadPoolExecutor(max_workers=max(1, min(8, (os.cpu_count() or 2) // 2))) as ex:
             list(ex.map(un, fichiers))
         ETAT["resultat"] = {nom: [res[f] for f in l] for nom, l in chutiers.items()}
     except Exception as e:
