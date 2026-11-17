@@ -5,8 +5,9 @@ from pathlib import Path
 
 DEPOT = "fabricelau/derush-auto"
 BRANCHE = "main"
-URL_VERSION = f"https://raw.githubusercontent.com/{DEPOT}/{BRANCHE}/version.json"
-URL_ZIP = f"https://github.com/{DEPOT}/archive/refs/heads/{BRANCHE}.zip"
+# API GitHub : toujours à jour (le lien "raw" garde une copie en cache 5 minutes)
+URL_VERSION = f"https://api.github.com/repos/{DEPOT}/contents/version.json?ref={BRANCHE}"
+URL_ZIP = f"https://api.github.com/repos/{DEPOT}/zipball/{BRANCHE}"
 INTERVALLE = 6 * 3600  # vérifie toutes les 6 heures
 
 ICI = Path(__file__).resolve().parent
@@ -37,13 +38,14 @@ def telecharger(url):
         ctx = ssl.create_default_context(cafile=certifi.where())
     except Exception:
         ctx = ssl.create_default_context()
-    req = urllib.request.Request(url, headers={"User-Agent": "DerushAuto", "Cache-Control": "no-cache"})
+    req = urllib.request.Request(url, headers={"User-Agent": "DerushAuto", "Cache-Control": "no-cache",
+                                              "Accept": "application/vnd.github.raw"})
     with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
         return r.read()
 
 
 def installer(etat):
-    distante = json.loads(telecharger(URL_VERSION + f"?t={int(time.time())}"))
+    distante = json.loads(telecharger(URL_VERSION))
     nouvelle = distante["version"]
     if comparer(nouvelle, version_locale()) <= 0:
         return False

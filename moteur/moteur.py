@@ -29,20 +29,29 @@ def ffmpeg():
         return "ffmpeg"
 
 
+_VERROU_VISAGES = threading.Lock()
+
+
 def visages():
+    # chargé une seule fois, protégé : plusieurs rushs sont analysés en même temps
     global _VISAGES
-    if _VISAGES is None:
-        _VISAGES = False
-        nom = "haarcascade_frontalface_default.xml"
-        candidats = [ICI / nom]
-        if hasattr(cv2, "data"):
-            candidats.append(Path(cv2.data.haarcascades) / nom)
-        for p in candidats:
-            if p.exists():
-                c = cv2.CascadeClassifier(str(p))
-                if not c.empty():
-                    _VISAGES = c
-                    break
+    with _VERROU_VISAGES:
+        if _VISAGES is None:
+            _VISAGES = False
+            try:
+                nom = "haarcascade_frontalface_default.xml"
+                candidats = [ICI / nom]
+                if hasattr(cv2, "data"):
+                    candidats.append(Path(cv2.data.haarcascades) / nom)
+                for p in candidats:
+                    if p.exists():
+                        c = cv2.CascadeClassifier(str(p))
+                        if not c.empty():
+                            _VISAGES = c
+                            break
+            except Exception:
+                _VISAGES = None  # on réessaiera au prochain rush
+                return False
     return _VISAGES
 
 
@@ -359,6 +368,7 @@ def lancer_analyse(chutiers, reglages):
                 ETAT["echecs"].append(f"{Path(f).name} : {e!r} | " + traceback.format_exc().splitlines()[-3])
                 res[f] = dict(fichier=f, fps=25.0, duree=0, moments=[], discours=False, segments=[])
             ETAT["fait"] += 1
+        visages()
         with ThreadPoolExecutor(max_workers=max(1, min(8, (os.cpu_count() or 2) // 2))) as ex:
             list(ex.map(un, fichiers))
         ETAT["resultat"] = {nom: [res[f] for f in l] for nom, l in chutiers.items()}
