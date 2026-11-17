@@ -37,6 +37,7 @@
 <label>Durée du clip (min) <input type="number" id="dClip" value="3" step="0.5" min="0.5"></label>
 <label>Synchro 2 caméras (discours) <input type="checkbox" id="sync" checked></label>
 <label>Musique du clip <button class="petit" id="bMusique">Choisir…</button></label>
+<label>ou chemin du fichier <input type="text" id="cheminMusique" placeholder="Coller le chemin du .mp3 / .wav"></label>
 <div id="nomMusique" style="color:#888">Aucune musique</div>
 <button id="bFilm" disabled>3. Créer le film</button>
 <button id="bClip" disabled>4. Créer le clip</button>
@@ -165,6 +166,8 @@ async function monter(mode) {
   indexerMoments();
   const { ordre, inconnus } = ordreChutiers();
   if (!ordre.length) return msg("Aucun chutier de l'ordre n'existe dans le projet.");
+  const colle = $("cheminMusique").value.trim().replace(/^"+|"+$/g, "");
+  if (colle) musique = colle;
   if (mode === "clip" && !musique) return msg("Choisis d'abord une musique pour le clip.");
   msg(mode === "film" ? "Montage du film…" : "Montage du clip sur la musique…");
   const minutes = +$(mode === "film" ? "dFilm" : "dClip").value;
@@ -187,7 +190,7 @@ $("bMusique").onclick = () => {
 };
 
 // ---------- version et mises à jour ----------
-const VERSION_PANNEAU = "1.2.0";
+const VERSION_PANNEAU = "1.2.1";
 $("version").textContent = "Derush Auto " + VERSION_PANNEAU;
 function plusRecente(a, b) {
   const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);

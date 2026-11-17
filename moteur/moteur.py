@@ -245,6 +245,8 @@ def monter_clip(chutiers, ordre, duree, musique):
     """Clip émotion : plans posés de 4 temps, coupes sur les temps de la musique,
     un seul passage par rush, parties équilibrées, durée = min(durée voulue, musique)."""
     beats = []
+    if musique and not Path(musique).exists():
+        raise FileNotFoundError(f"musique introuvable : {musique}")
     if musique:
         try:
             beats = temps_musique(musique)[1]
